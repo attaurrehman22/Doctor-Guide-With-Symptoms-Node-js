@@ -7,6 +7,8 @@ const BodyParts = require("./models/bodypartsModel");
 const router = express.Router();
 const BodyPart = require("./models/bodypartsModel");
 const BodyPartSymptoms = require("./models/bodypartsymptoms");
+const Doctor_specialization=require('./models/doctorspecialization')
+const Doctor_Save_specialization=require('./models/doctorsavespecialization')
 const cors = require("cors");
 
 const app = express();
@@ -36,39 +38,76 @@ mongoose
 app.post("/doctor", async (req, res) => {
   console.log("checkboxes", req.body.checkboxes);
   console.log("req ody", req.body);
+  
   try {
+    const docData=req.body;
+    const doc_spc=req.body.speciality;
     const searchEmail = await Doctor.findOne({ email: req.body.email });
+    const searchspc = await Doctor_specialization.findOne({ specialization: doc_spc });
     if (searchEmail) {
       res.status(200).json("exist");
-    } else {
-      const newDoctor = await Doctor.create(req.body);
+    }
+    else {
+      const Doctor_Data=await Doctor.create(req.body)
+      if(searchspc){
+       const searchspcID=searchspc._id;
+      
 
-      const symptomsCollection = mongoose.connection.collection("Body Parts");
-      const getbodyparts = await symptomsCollection.findOne({
-        name: req.body.speciality,
-      });
-
-      const selectedSymptoms = req.body.checkboxes.map(
-        (checkbox) => checkbox.sympname
+          await Doctor.updateOne(
+        { _id: Doctor_Data._id },
+        { $set: { specializationid:searchspcID } }
       );
-
-      const symptomPromises = selectedSymptoms.map(async (symptom) => {
-        const sympCollection = mongoose.connection.collection("symptoms");
-        const getsympname = await sympCollection.findOne({ name: symptom });
-        return getsympname._id;
-      });
-
-      const symptomIds = await Promise.all(symptomPromises);
-
-      console.log("symptomIds", symptomIds);
-      console.log("new Doctor Id", newDoctor._id);
 
       await Doctor.updateOne(
-        { _id: newDoctor._id },
-        { $push: { symptomsid: { $each: symptomIds } } }
+        { _id: Doctor_Data._id },
+        { $set: { active:"NOT" } }
       );
 
-      res.status(200).json(newDoctor);
+      if (Array.isArray(req.body.checkboxes) && req.body.checkboxes.length > 0) {
+        const selectedSymptoms = req.body.checkboxes.map(item => ({
+          doctorId: Doctor_Data._id,
+          specializationid:searchspc._id,
+          sympname: item.sympname
+        }));
+        console.log("---------------------------------selectedSymptoms",selectedSymptoms)
+        const new_record=await Doctor_Save_specialization.insertMany(selectedSymptoms);
+      }
+      
+
+       console.log("Doctor_Data",Doctor_Data)
+
+       res.status(200).json(Doctor_Data);
+
+      }
+
+      // const newDoctor = await Doctor.create(req.body);
+
+      // const symptomsCollection = mongoose.connection.collection("Body Parts");
+      // const getbodyparts = await symptomsCollection.findOne({
+      //   name: req.body.speciality,
+      // });
+
+      // const selectedSymptoms = req.body.checkboxes.map(
+      //   (checkbox) => checkbox.sympname
+      // );
+
+      // const symptomPromises = selectedSymptoms.map(async (symptom) => {
+      //   const sympCollection = mongoose.connection.collection("symptoms");
+      //   const getsympname = await sympCollection.findOne({ name: symptom });
+      //   return getsympname._id;
+      // });
+
+      // const symptomIds = await Promise.all(symptomPromises);
+
+      // console.log("symptomIds", symptomIds);
+      // console.log("new Doctor Id", newDoctor._id);
+
+      // await Doctor.updateOne(
+      //   { _id: newDoctor._id },
+      //   { $push: { symptomsid: { $each: symptomIds } } }
+      // );
+
+      res.status(200).json(Doctor_Data);
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -77,30 +116,16 @@ app.post("/doctor", async (req, res) => {
 
 app.get("/doctordata", async (req, res) => {
   try {
-    const doctors = await Doctor.find({}, "_id");
+    const doctors = await Doctor.find();
+    console.log("doctors",doctors)
 
-    const doctorDataPromises = doctors.map(async (doctor) => {
-      const dataWithSymptoms = await getDatawithSymptoms(doctor._id);
-      return { _id: doctor._id, dataWithSymptoms };
-    });
-
-    const completeDoctorData = await Promise.all(doctorDataPromises);
-
-    res.json(completeDoctorData);
+    res.json(doctors);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
 
-async function getDatawithSymptoms(doctorId) {
-  const doctor = await Doctor.findById(doctorId).populate("symptomsid");
-  console.log(doctor);
-  if (!doctor) {
-  }
-  const symptomIds = doctor.symptomsid.map((symptom) => symptom._id);
-  const symptoms = await Symptom.find({ _id: { $in: symptomIds } });
-  return { doctor, symptoms };
-}
+
 
 app.get("/getdoctors", async (req, res) => {
   try {
@@ -120,7 +145,7 @@ app.put("/acceptDoctor", async (req, res) => {
   console.log("doctorid", doctorId);
 
   try {
-    // Find the doctor by ID
+
     const doctor = await Doctor.findById(doctorId);
 
     if (!doctor) {
@@ -141,7 +166,7 @@ app.put("/rejectDoctor", async (req, res) => {
   console.log("doctorid", doctorId);
 
   try {
-    // Find the doctor by ID
+   
     const doctor = await Doctor.findById(doctorId);
 
     if (!doctor) {
@@ -201,23 +226,40 @@ app.get("/getbodyparts", async (req, res) => {
 
 app.get("/getsymptoms/:name", async (req, res) => {
   const name = req.params.name;
-
+  console.log("name", name);
+  
   try {
-    const symptom = await BodyPart.findOne({ _id: name });
+    const spec = await Doctor_specialization.findOne({ specialization: name });
 
-    if (symptom) {
-      const symptomId = symptom._id;
-      console.log("Symptom ID:", symptomId);
-      const data = await Symptom.find({ bid: symptom._id });
-      console.log("data:", data);
-      res.status(200).json(data);
+    if (spec) {
+      const specid = spec._id;
+      console.log("specid ID:", specid);
+      
+      const bodypartdata = await BodyPart.find({ specialization: specid });
+      console.log("bodypartdata:", bodypartdata);
+      
+      if (bodypartdata.length > 0) {
+        const symptomsList = [];
+
+        for (const bodypart of bodypartdata) {
+          const bodypartdataID = bodypart._id;
+          console.log("bodypartdataID ID:", bodypartdataID);
+          const getsymp = await Symptom.find({ bid: bodypartdataID });
+          symptomsList.push(...getsymp);
+        }
+
+        res.status(200).json(symptomsList);
+      } else {
+        res.status(404).json({ message: "Body part data not found" });
+      }
     } else {
-      res.status(404).json({ message: "Symptom not found" });
+      res.status(404).json({ message: "Specialization not found" });
     }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
+
 
 app.get("/getdoctorlistofsymptoms/:id", async (req, res) => {
   const { id } = req.params;
@@ -237,61 +279,66 @@ app.get("/getdoctorlistofsymptoms/:id", async (req, res) => {
   }
 });
 
-// app.post('/save', async (req, res) => {
-//   try {
-//     const { bodyPart, symptoms } = req.body;
-//     const doctorlist = await BodyPart.find({name:bodyPart});
 
-//     if(doctorlist.length>0){
-//       res.status(500).json({message:"Exist"})
-//     }
-//     else{
-//       const newBodyPart = new BodyPart({ name:bodyPart });
-//       const check=await newBodyPart.save();
-
-//     console.log("Symptoms = ",symptoms)
-
-//       const newBodyPartsymptoms = new BodyPartSymptoms({ name:symptoms });
-//       const checksymp=await newBodyPartsymptoms.save();
-//       res.status(200).json(checksymp)
-//     }
-
-//   } catch (error) {
-//     res.status(500).json({ error: "Error saving data" });
-//   }
-// });
 
 app.post("/save", async (req, res) => {
   try {
-    const { bodyPart, symptoms } = req.body;
+    const { bodyPart, specialization, symptoms } = req.body;
 
-    // Check if the body part already exists
+    const spsData=await Doctor_specialization.findOne({specialization:specialization})
+    console.log("spsData",spsData)
+
     const existingBodyPart = await BodyPart.findOne({ name: bodyPart });
+
+    if (existingBodyPart) {
+      return res.status(409).json({ message: "Body part already exists" });
+    }
+
+    const newBodyPart = new BodyPart({ name: bodyPart, specialization:spsData._id });
+    const savedBodyPart = await newBodyPart.save();
+
+    const symptomObjects = symptoms.map((symptomName) => new Symptom({ bid: savedBodyPart._id, name: symptomName }));
+    const savedSymptoms = await BodyPartSymptoms.insertMany(symptomObjects);
+
+    savedBodyPart.symptoms = savedSymptoms.map((symptom) => symptom._id);
+    await savedBodyPart.save();
+
+    res.status(200).json({ message: "Data saved successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Error saving data" });
+  }
+});
+
+
+
+
+
+app.post("/saveDoctorSpecialization", async (req, res) => {
+  try {
+    const { specialization } = req.body;
+
+   
+    const existingBodyPart = await BodyPart.findOne({ specialization: specialization });
 
     if (existingBodyPart) {
       res.status(409).json({ message: "Body part already exists" });
     } else {
-      // Create a new body part
-      const newBodyPart = new BodyPart({ name: bodyPart });
+  
+      const newBodyPart = new Doctor_specialization({ specialization: specialization });
       const getbody = await newBodyPart.save();
-      console.log("getbody", newBodyPart);
+      console.log("getbody", getbody);
 
-      const symptomObjects = symptoms.map(
-        (symptomName) => new Symptom({ bid: getbody._id, name: symptomName })
-      );
-      const savedSymptoms = await BodyPartSymptoms.insertMany(symptomObjects);
 
-      // Associate the saved symptoms with the new body part
-      newBodyPart.symptoms = savedSymptoms.map((symptom) => symptom._id);
-      await newBodyPart.save();
-
-      res.status(200).json({ message: "Data saved successfully" });
+      res.status(200).json(getbody._id);
     }
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Error saving data" });
   }
 });
+
+
 
 app.get("/getBodyPartsandSymptoms/:name", async (req, res) => {
   console.log(req.params);
@@ -309,9 +356,9 @@ app.get("/getBodyPartsandSymptoms/:name", async (req, res) => {
 
 app.get("/getBodyPart", async (req, res) => {
   try {
-    const getbodypart = await BodyPart.find({});
+    const getbodypart = await Doctor_specialization.find({});
     if (getbodypart) {
-      // console.log("getbodypart",getbodypart)
+    
     }
     res.status(200).json(getbodypart);
   } catch (error) {
@@ -319,115 +366,94 @@ app.get("/getBodyPart", async (req, res) => {
   }
 });
 
-// app.get('/getdoctorlist/', async (req, res) => {
-//   try {
-//     const { sympname } = req.query;
-//     console.log(sympname)
 
-//     if (!sympname) {
-//       return res.status(400).json({ message: 'Invalid input. sympname parameter is missing.' });
-//     }
 
-//     const sympnameArray = sympname.split(',');
 
-//     const doctors = await BodyPartSymptoms.find({ name: { $in: sympnameArray } });
 
-//     console.log("doctors",doctors)
 
-//    const doctors_bid=doctors.map((doc)=>{
-//     console.log("doctors_bid",doc.bid)
-//     const doctorsList =Doctor.find({ symptomsid: { $oid: doc.bid } });
-//     console.log("doctors list that i want",doctorsList)
-//    })
 
-//     res.status(200).json({ doctors });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// });
+app.get('/getdoctorlist', async (req, res) => {
+  const { symptomNames, bodyPartname } = req.query;
+  const selectedSymptoms = symptomNames.split(',');
 
-app.get("/getdoctorlist/", async (req, res) => {
+
   try {
-    const { sympname } = req.query;
+    const doctors = await Symptom.find({ name: { $in: selectedSymptoms } });
 
-    if (!sympname) {
-      return res
-        .status(400)
-        .json({ message: "Invalid input. sympname parameter is missing." });
+    const uniqueBids = [...new Set(doctors.map(doctor => doctor.bid))];
+
+    const relatedBodyParts = await BodyParts.find({ _id: { $in: uniqueBids } });
+
+    const specializationIds = relatedBodyParts.map(part => part.specialization);
+
+    const relatedDoctors = await Doctor.find({ specializationid: { $in: specializationIds } });
+
+    const relatedSpecializationIds = relatedDoctors.map(doctor => doctor._id);
+
+    const resultArray = [];
+    const doctorsList=[];
+    for(const doctordata of relatedSpecializationIds){
+      let id=0;
+       for(const data of selectedSymptoms){
+     
+        const getOriginalData = await Doctor_Save_specialization.find({
+          doctorId: relatedSpecializationIds, 
+          sympname: data,      
+        });
+        
+        if(getOriginalData){
+          id=id+1;
+        }
+
+        if(selectedSymptoms.length===id){
+
+          if(resultArray.length>=0){
+            resultArray.push(getOriginalData);
+          }
+          else{
+            resultArray.push(...getOriginalData);
+          }
+     
+        }
+       }
     }
 
-    const sympnameArray = sympname.split(",");
 
-    const doctorsArray = [];
 
-    for (const symptom of sympnameArray) {
-      const symptomDoctors = await getDoctorsForSymptom(symptom);
-      doctorsArray.push({ symptom, doctors: symptomDoctors });
+    for(const dotorGetData of resultArray){
+      for(const newdotorGetData of dotorGetData){
+        newList = await Doctor.find({ _id:newdotorGetData.doctorId,
+        active:"OK"  });
+        doctorsList.push(...newList)
+      }
+      break;
     }
 
-    res.status(200).json({ doctors: doctorsArray });
+
+
+    res.json(doctorsList);
+  } catch (error) {
+    res.status(500).json({ error: 'An error occurred' });
+  }
+});
+
+
+app.get("/getsympt/:name", async (req, res) => {
+  const name = req.params.name;
+  console.log("name",name)
+  try {
+    const symptom = await BodyPart.findOne({ _id: name });
+
+    if (symptom) {
+      const symptomId = symptom._id;
+      console.log("Symptom ID:", symptomId);
+      const data = await Symptom.find({ bid: symptom._id });
+      console.log("data:", data);
+      res.status(200).json(data);
+    } else {
+      res.status(404).json({ message: "Symptom not found" });
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 });
-
-async function getDoctorsForSymptom(symptom) {
-  console.log("-------------", symptom);
-  const doctors = [];
-
-  const symptomDocs = await BodyPartSymptoms.find({ name: symptom });
-
-  const symptomIds = symptomDocs.map((doc) => doc.bid); // Extract the ObjectIDs from symptomDocs
-  console.log("symptomDocs       ----- bid", symptomIds);
-
-  const newnew = await Doctor.find({});
-  for (const doctor of newnew) {
-    console.log("Doctor:", doctor.name);
-    console.log("symptomsid:");
-
-    for (const symptomId of doctor.symptomsid) {
-
-      const doctorsList = await Doctor.find({ symptomsid: { $in: symptomId } });
-      console.log("doctors list that I want", doctorsList);
-      doctors.push(...doctorsList);
-
-    }
-  }
-
-  // const doctorsList = await Doctor.find({ symptomsid: { $in: symptomIds } });
-  // console.log("doctors list that I want", doctorsList);
-  // doctors.push(...doctorsList);
-
-  return doctors;
-}
-
-// app.get('/getdoctorlist/', async (req, res) => {
-//   try {
-//     const { sympname } = req.query;
-
-//     if (!sympname) {
-//       return res.status(400).json({ message: 'Invalid input. sympname parameter is missing.' });
-//     }
-
-//     const sympnameArray = sympname.split(',');
-
-//     const doctors = await BodyPartSymptoms.find({ name: { $in: sympnameArray } });
-
-//     const doctorsListPromises = doctors.map(async (doc) => {
-//       console.log("doctors_bid", doc.bid);
-
-//       // Convert the array of string ObjectIds to an array of actual ObjectId objects
-//       const symptomIds = doc.bid(id => mongoose.Types.ObjectId(id));
-
-//       const doctorsList = await Doctor.find({ symptomsid: { $oid: symptomIds } });
-//       console.log("doctors list that I want", doctorsList);
-//       return doctorsList;
-//     });
-
-//     const doctorsListResults = await Promise.all(doctorsListPromises);
-
-//     res.status(200).json({ doctors: doctorsListResults });
-//   } catch (error) {
-//     res.status(500).json({ message: error.message });
-//   }
-// });

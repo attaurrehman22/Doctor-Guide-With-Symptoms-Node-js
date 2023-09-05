@@ -30,6 +30,9 @@ const doctorSchema=mongoose.Schema({
     role:{
         type:String
     },
+    specializationid:{
+      
+    },
     active:{
         type:String
     },

@@ -7,6 +7,9 @@ const bodypartsSchema=mongoose.Schema({
         type:String,
         required:[true,"Please Enter Name"]
     },
+    specialization:{
+        // type: mongoose.Schema.Types.ObjectId,
+    },
     bodyPart:{
         type:String
     }
